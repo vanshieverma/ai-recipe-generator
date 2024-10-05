@@ -61,7 +61,7 @@ const getImageGenerationPrompt = (recipeName: string, ingredients: Recipe['ingre
 };
 
 const getIngredientValidationPrompt = (ingredientName: string): string => {
-    return `You are a food ingredient validation assistant. Given this ingredient name: ${ingredientName}, you will respond with a JSON object in the following format:
+    return `Return only valid JSON, without any additional explanation or text. You are a food ingredient validation assistant. Given this ingredient name: ${ingredientName}, you will respond with a JSON object in the following format:
 
 {
   "isValid": true/false,
@@ -192,9 +192,8 @@ export interface ValidationResponse {
 
 export const validateIngredient = async (ingredientName: string, userId: string): Promise<ValidationResponse | null> => {
     try {
-        // Use the getIngredientValidationPrompt function to get the prompt
         const prompt = getIngredientValidationPrompt(ingredientName);
-        
+
         // Make a request to Hugging Face's GPT-Neo model
         const response: HfValidationResponse = await hf.textGeneration({
             model: 'EleutherAI/gpt-neo-2.7B',
@@ -211,17 +210,26 @@ export const validateIngredient = async (ingredientName: string, userId: string)
         console.log('Raw response from Hugging Face:', response);
 
         const validationText = response.generated_text;
+
         if (validationText) {
-            console.log('Validation Text:', validationText); // Log the response
-            try {
-                // Trim whitespace from the output before parsing
-                const trimmedText = validationText.trim();
-                const jsonResponse: ValidationResponse = JSON.parse(trimmedText);
-                await saveOpenaiResponses({ userId, prompt, response });
-                return jsonResponse; 
-            } catch (jsonError) {
-                console.error('Failed to parse JSON response:', jsonError);
-                return null; 
+            console.log('Validation Text:', validationText);
+
+            // Use regex to extract the valid JSON portion
+            const jsonMatch = validationText.match(/{.*}/);
+            if (jsonMatch) {
+                const jsonResponseStr = jsonMatch[0].trim();
+
+                try {
+                    const jsonResponse: ValidationResponse = JSON.parse(jsonResponseStr);
+                    await saveOpenaiResponses({ userId, prompt, response });
+                    return jsonResponse;
+                } catch (jsonError) {
+                    console.error('Failed to parse JSON response:', jsonError);
+                    return null;
+                }
+            } else {
+                console.error('No valid JSON found in the response:', validationText);
+                return null;
             }
         } else {
             console.error('No response text received from Hugging Face');
